@@ -1,0 +1,57 @@
+plugins {
+    id 'java'
+    id 'com.gradleup.shadow' version '8.3.6'
+}
+
+group   = 'com.skriptvariables'
+version = '1.0.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    maven { url 'https://repo.papermc.io/repository/maven-public/' }
+    maven { url 'https://jitpack.io' }
+    mavenCentral()
+}
+
+configurations {
+    testCompileOnly.extendsFrom compileOnly
+    testRuntimeOnly.extendsFrom compileOnly
+}
+
+dependencies {
+    compileOnly 'io.papermc.paper:paper-api:1.21.4-R0.1-SNAPSHOT'
+    compileOnly('com.github.SkriptLang:Skript:2.14.0') { transitive = false }
+    compileOnly('com.github.sovdeeth:oopsk:1.0-beta2') { transitive = false }
+    compileOnly 'org.jetbrains:annotations:24.1.0'
+    implementation 'org.bstats:bstats-bukkit:3.2.1'
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks {
+    compileJava {
+        options.encoding = 'UTF-8'
+        options.release  = 21
+    }
+
+    shadowJar {
+        archiveBaseName   = 'skript-variables'
+        archiveClassifier = ''
+        archiveVersion    = '1.1-beta'
+        relocate 'org.bstats', 'com.skriptvariables.bstats'
+    }
+
+    build {
+        dependsOn shadowJar
+    }
+
+    test {
+        useJUnitPlatform()
+    }
+}
