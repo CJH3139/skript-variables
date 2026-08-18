@@ -21,7 +21,3 @@ bin/
 Thumbs.db
 
 /config.yml
-
-docs/superpowers/
-
-.claude/
