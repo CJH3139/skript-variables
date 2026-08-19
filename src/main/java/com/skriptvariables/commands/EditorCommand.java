@@ -112,6 +112,7 @@ public final class EditorCommand implements CommandExecutor, TabCompleter {
                             .decorate(TextDecoration.UNDERLINED)
                             .clickEvent(ClickEvent.openUrl(url))
                     );
+                    sender.sendMessage(Component.text(url).color(NamedTextColor.GRAY));
                 });
             } catch (Exception e) {
                 plugin.getLogger().log(java.util.logging.Level.WARNING, "/skv editor failed", e);
