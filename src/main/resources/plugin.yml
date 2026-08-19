@@ -1,5 +1,5 @@
 name: skript-variables
-version: '1.1-beta'
+version: '1.1.2-beta'
 main: com.skriptvariables.SkriptVariables
 api-version: '1.21'
 author: iCJH
