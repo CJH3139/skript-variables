@@ -37,6 +37,37 @@ public final class VariableApplier {
 
     public record ApplyResult(int applied, int skipped, List<String> errors) {}
 
+    public record Change(String name, String type, String value) {}
+
+    public record PreviewResult(List<Change> sets, List<Change> deletes, List<Change> unparseable) {}
+
+    public static PreviewResult preview(String diffJson) {
+        List<Change> sets = new ArrayList<>();
+        List<Change> deletes = new ArrayList<>();
+        List<Change> unparseable = new ArrayList<>();
+
+        for (Map<String, String> raw : parseDiff(diffJson)) {
+            String name = raw.get("n");
+            if (name == null || name.isEmpty()) continue;
+            String type = raw.getOrDefault("t", "");
+            Change change = new Change(name, type, raw.getOrDefault("v", ""));
+
+            if ("null".equalsIgnoreCase(type)) {
+                deletes.add(change);
+                continue;
+            }
+            Object parsed;
+            try {
+                parsed = parseValue(type, change.value());
+            } catch (Exception e) {
+                parsed = null;
+            }
+            if (parsed == null) unparseable.add(change);
+            else sets.add(change);
+        }
+        return new PreviewResult(sets, deletes, unparseable);
+    }
+
     public static ApplyResult apply(String diffJson) {
         List<Map<String, String>> changes = parseDiff(diffJson);
         int applied = 0, skipped = 0;

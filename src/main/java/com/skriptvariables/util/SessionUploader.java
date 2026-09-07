@@ -47,7 +47,32 @@ public final class SessionUploader {
     public record UploadResult(String sessionId, int totalVars, int totalChunks) {}
 
     public static UploadResult upload(File csvFile) throws Exception {
+        LinkedHashMap<String, String[]> live = readCsv(csvFile);
+        boolean hadCsv = !live.isEmpty();
+
+        Map<String, Object> flat = mergeLiveOnly(live);
+        if (flat == null && !hadCsv) {
+            throw new IllegalStateException(
+                "Could not read Skript's in-memory variables and no variables.csv was found.");
+        }
+
+        List<String[]> vars = new ArrayList<>(live.values());
+        int total = vars.size();
+        int totalChunks = (int) Math.ceil((double) total / CHUNK_SIZE);
+
+        ValueMaps maps = buildValueMaps(vars, flat);
+
+        String sessionId = ApiClient.createSession(total);
+
+        uploadChunksInParallel(sessionId, vars, total, totalChunks, maps);
+
+        ApiClient.markReady(sessionId, totalChunks);
+        return new UploadResult(sessionId, total, totalChunks);
+    }
+
+    static LinkedHashMap<String, String[]> readCsv(File csvFile) throws IOException {
         LinkedHashMap<String, String[]> live = new LinkedHashMap<>();
+        if (csvFile == null || !csvFile.isFile()) return live;
 
         try (BufferedReader r = new BufferedReader(
                 new InputStreamReader(new FileInputStream(csvFile), StandardCharsets.UTF_8))) {
@@ -67,21 +92,7 @@ public final class SessionUploader {
                 }
             }
         }
-
-        Map<String, Object> flat = mergeLiveOnly(live);
-
-        List<String[]> vars = new ArrayList<>(live.values());
-        int total = vars.size();
-        int totalChunks = (int) Math.ceil((double) total / CHUNK_SIZE);
-
-        ValueMaps maps = buildValueMaps(vars, flat);
-
-        String sessionId = ApiClient.createSession(total);
-
-        uploadChunksInParallel(sessionId, vars, total, totalChunks, maps);
-
-        ApiClient.markReady(sessionId, totalChunks);
-        return new UploadResult(sessionId, total, totalChunks);
+        return live;
     }
 
     private static void uploadChunksInParallel(String sessionId, List<String[]> vars, int total,

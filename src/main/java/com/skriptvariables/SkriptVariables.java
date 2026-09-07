@@ -3,7 +3,8 @@ package com.skriptvariables;
 import ch.njol.skript.Skript;
 import ch.njol.skript.ScriptLoader;
 import com.skriptvariables.commands.EditorCommand;
-import com.skriptvariables.skript.EvtVariablesApply;
+import com.skriptvariables.service.EditorService;
+import com.skriptvariables.skript.SkvSyntax;
 import com.skriptvariables.util.ApiClient;
 import org.bstats.bukkit.Metrics;
 import org.bukkit.Bukkit;
@@ -14,6 +15,7 @@ public final class SkriptVariables extends JavaPlugin {
 
     private static SkriptVariables instance;
     private static SkriptAddon addon;
+    private static EditorService service;
 
     @Override
     public void onEnable() {
@@ -26,12 +28,14 @@ public final class SkriptVariables extends JavaPlugin {
         int pluginId = 31367;
         Metrics metrics = new Metrics(this, pluginId);
 
+        service = new EditorService(this);
+
         addon = Skript.instance().registerAddon(SkriptVariables.class, "SkriptVariables");
-        EvtVariablesApply.register();
+        SkvSyntax.register(addon.syntaxRegistry());
 
         var cmd = getCommand("skv");
         if (cmd != null) {
-            var executor = new EditorCommand(this);
+            var executor = new EditorCommand(this, service);
             cmd.setExecutor(executor);
             cmd.setTabCompleter(executor);
         }
@@ -56,6 +60,10 @@ public final class SkriptVariables extends JavaPlugin {
 
     public static SkriptAddon getAddon() {
         return addon;
+    }
+
+    public static EditorService getService() {
+        return service;
     }
 
     public static boolean isOopskPresent() {

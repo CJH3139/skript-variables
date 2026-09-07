@@ -25,6 +25,7 @@ Download the latest release from [Modrinth](https://modrinth.com/plugin/skript-v
 | `/skv editor` | Upload variables and get a link to the web editor | `skriptvariables.editor` |
 | `/skv apply <sessionId> <code>` | Apply changes made in the editor back to the server | `skriptvariables.editor` |
 | `/skv apply <sessionId> <code> --force` | Apply changes without expiring the code | `skriptvariables.editor` |
+| `/skv apply <sessionId> <code> --preview` | Show what would change without applying anything | `skriptvariables.editor` |
 | `/skv profile start [seconds]` | Record Skript timings, default 60s, max 600s | `skriptvariables.profile` |
 | `/skv profile stop` | Stop recording, upload the results and open the report | `skriptvariables.profile` |
 | `/skv profile status` | Show whether recording is active | `skriptvariables.profile` |
@@ -38,6 +39,41 @@ All commands default to **op only**.
 1. `/skv editor` reads your server's Skript variables, uploads them to the skript-variables API, and sends you a clickable link.
 2. You edit variables in the browser. Changes are queued but not applied yet.
 3. The editor generates an apply code. Run `/skv apply <sessionId> <code>` in-game to write the changes back to Skript's variable storage instantly.
+
+Servers that store variables in MySQL or SQLite work too. The plugin reads
+Skript's in-memory variables directly and only uses `variables.csv` when it
+exists.
+
+## Preview before applying
+
+`/skv apply <sessionId> <code> --preview` fetches the pending changes and
+prints what would be set, deleted, or skipped because the value cannot be
+parsed. Nothing is written and the apply code stays valid, so you can review
+and then run the same command without `--preview` to apply.
+
+## Skript syntax
+
+The addon also exposes its features to scripts:
+
+```
+# effects
+start a skript profile                        # 60 seconds
+start a skript profile for 2 minutes          # up to 10 minutes
+stop the skript profile                       # link goes to console
+stop the skript profile and send the link to player
+open the variable editor for player
+
+# condition
+if the skript profiler is recording:
+if the skript profiler is not recording:
+
+# expressions
+the skript profiler elapsed time              # timespan, 0 seconds when idle
+the skript profiler execution count           # number of measured trigger runs
+```
+
+Applying changes from a script is intentionally not offered. The apply code
+comes from the browser and is the safety check.
 
 ## Profiler
 

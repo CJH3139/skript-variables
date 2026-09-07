@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.2-beta
+
+### Works without variables.csv
+
+- `/skv editor` and the profiler no longer refuse to run when
+  `plugins/Skript/variables.csv` is missing. Servers using MySQL or SQLite
+  variable storage are now supported
+- Variables are read from Skript's in-memory map, which was already the source
+  of truth; the CSV only ever supplied row order
+- A clear error is shown if neither the in-memory map nor a CSV can be read
+
+### Preview before applying
+
+- `/skv apply <sessionId> <code> --preview` prints what would be set, deleted,
+  or skipped, without writing anything. The apply code stays valid
+- Values that cannot be parsed are listed so you can fix them in the editor
+  before applying
+- Tab completion offers `--preview` next to `--force`
+
+### Skript syntax
+
+- Effect `start [a|the] skript profile [for %timespan%]`
+- Effect `stop [the] skript profile [and send [the] link to %commandsender%]`
+- Effect `open [the] variable editor for %commandsenders%`
+- Condition `[the] skript profiler is [not] recording`
+- Expression `[the] skript profiler elapsed time` (timespan)
+- Expression `[the] skript profiler execution count` (number)
+- Syntax is registered through Skript's addon registry introduced in 2.14
+
+### Internals
+
+- Command logic moved into `EditorService` so the command and the Skript
+  syntax share one implementation
+- `/skv help` now lists the profile subcommands
+
 ## 1.1-beta
 
 Adds a session based Skript profiler and a new Profiler tab in the web editor.
