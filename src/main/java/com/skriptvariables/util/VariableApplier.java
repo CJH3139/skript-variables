@@ -5,7 +5,6 @@ import ch.njol.skript.lang.ParseContext;
 import ch.njol.skript.registrations.Classes;
 import ch.njol.skript.util.Date;
 import ch.njol.skript.util.Timespan;
-import ch.njol.skript.variables.Variables;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -27,13 +26,8 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.util.Vector;
 
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public final class VariableApplier {
-
-    private static final Pattern KV_PATTERN =
-        Pattern.compile("\"([^\"]+)\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");
 
     public record ApplyResult(int applied, int skipped, List<String> errors) {}
 
@@ -42,23 +36,22 @@ public final class VariableApplier {
     public record PreviewResult(List<Change> sets, List<Change> deletes, List<Change> unparseable) {}
 
     public static PreviewResult preview(String diffJson) {
+        return preview(parseChanges(diffJson));
+    }
+
+    public static PreviewResult preview(List<Change> changes) {
         List<Change> sets = new ArrayList<>();
         List<Change> deletes = new ArrayList<>();
         List<Change> unparseable = new ArrayList<>();
 
-        for (Map<String, String> raw : parseDiff(diffJson)) {
-            String name = raw.get("n");
-            if (name == null || name.isEmpty()) continue;
-            String type = raw.getOrDefault("t", "");
-            Change change = new Change(name, type, raw.getOrDefault("v", ""));
-
-            if ("null".equalsIgnoreCase(type)) {
+        for (Change change : changes) {
+            if ("null".equalsIgnoreCase(change.type())) {
                 deletes.add(change);
                 continue;
             }
             Object parsed;
             try {
-                parsed = parseValue(type, change.value());
+                parsed = parseValue(change.type(), change.value());
             } catch (Exception e) {
                 parsed = null;
             }
@@ -69,29 +62,29 @@ public final class VariableApplier {
     }
 
     public static ApplyResult apply(String diffJson) {
-        List<Map<String, String>> changes = parseDiff(diffJson);
+        return apply(parseChanges(diffJson), SkriptVariableStore.INSTANCE);
+    }
+
+    public static ApplyResult apply(List<Change> changes, VariableStore store) {
         int applied = 0, skipped = 0;
         List<String> errors = new ArrayList<>();
 
-        for (Map<String, String> change : changes) {
-            String name = change.get("n");
-            String type = change.get("t");
-            String value = change.getOrDefault("v", "");
-
-            if (name == null || name.isEmpty()) { skipped++; continue; }
-
+        for (Change change : changes) {
             try {
-                if ("null".equalsIgnoreCase(type)) {
-                    Variables.setVariable(name, null, null, false);
+                if (isListDelete(change)) {
+                    deleteList(change.name(), store);
+                    applied++;
+                } else if ("null".equalsIgnoreCase(change.type())) {
+                    store.set(change.name(), null);
                     applied++;
                 } else {
-                    Object parsed = parseValue(type, value);
+                    Object parsed = parseValue(change.type(), change.value());
                     if (parsed == null) { skipped++; continue; }
-                    Variables.setVariable(name, parsed, null, false);
+                    store.set(change.name(), parsed);
                     applied++;
                 }
             } catch (Exception e) {
-                errors.add(name + ": " + e.getMessage());
+                errors.add(change.name() + ": " + e.getMessage());
                 skipped++;
             }
         }
@@ -99,11 +92,56 @@ public final class VariableApplier {
         return new ApplyResult(applied, skipped, errors);
     }
 
+    public static boolean isListDelete(Change change) {
+        return "null".equalsIgnoreCase(change.type()) && change.name().endsWith("::*");
+    }
+
+    public static int deleteList(String listName, VariableStore store) {
+        if (!(store.get(listName) instanceof Map<?, ?> map)) return 0;
+        List<String> indices = new ArrayList<>();
+        for (Object key : map.keySet()) {
+            if (key != null) indices.add(key.toString());
+        }
+        String prefix = listName.substring(0, listName.length() - 1);
+        for (String index : indices) {
+            store.set(prefix + index, null);
+        }
+        store.set(listName, null);
+        return indices.size();
+    }
+
     public static List<String> parseNames(String diffJson) {
-        return parseDiff(diffJson).stream()
-            .map(m -> m.get("n"))
-            .filter(n -> n != null && !n.isEmpty())
-            .toList();
+        return parseChanges(diffJson).stream().map(Change::name).toList();
+    }
+
+    public static List<Change> parseChanges(String json) {
+        List<Change> out = new ArrayList<>();
+        if (json == null || json.isBlank()) return out;
+        JsonElement root = JsonParser.parseString(json);
+        JsonArray array;
+        if (root.isJsonArray()) {
+            array = root.getAsJsonArray();
+        } else if (root.isJsonObject() && root.getAsJsonObject().get("changes") instanceof JsonArray wrapped) {
+            array = wrapped;
+        } else {
+            return out;
+        }
+        for (JsonElement element : array) {
+            if (!element.isJsonObject()) continue;
+            JsonObject obj = element.getAsJsonObject();
+            String name = field(obj, "n");
+            if (name == null || name.isEmpty()) continue;
+            String type = field(obj, "t");
+            String value = field(obj, "v");
+            out.add(new Change(name, type == null ? "" : type, value == null ? "" : value));
+        }
+        return out;
+    }
+
+    private static String field(JsonObject obj, String key) {
+        JsonElement element = obj.get(key);
+        if (element == null || element.isJsonNull()) return null;
+        return element.isJsonPrimitive() ? element.getAsString() : element.toString();
     }
 
     @SuppressWarnings("deprecation")
@@ -246,40 +284,5 @@ public final class VariableApplier {
         } catch (Exception e) {
             return null;
         }
-    }
-
-    private static List<Map<String, String>> parseDiff(String json) {
-        List<Map<String, String>> result = new ArrayList<>();
-        int start = json.indexOf("[");
-        int end   = json.lastIndexOf("]");
-        if (start < 0 || end < 0) return result;
-
-        for (String obj : splitObjects(json.substring(start + 1, end))) {
-            Map<String, String> map = parseObject(obj.trim());
-            if (!map.isEmpty()) result.add(map);
-        }
-        return result;
-    }
-
-    private static List<String> splitObjects(String arr) {
-        List<String> objects = new ArrayList<>();
-        int depth = 0, objStart = -1;
-        for (int i = 0; i < arr.length(); i++) {
-            char c = arr.charAt(i);
-            if (c == '{') { if (depth++ == 0) objStart = i; }
-            else if (c == '}' && --depth == 0 && objStart >= 0) objects.add(arr.substring(objStart, i + 1));
-        }
-        return objects;
-    }
-
-    private static Map<String, String> parseObject(String obj) {
-        Map<String, String> map = new LinkedHashMap<>();
-        Matcher m = KV_PATTERN.matcher(obj);
-        while (m.find()) map.put(m.group(1), unescape(m.group(2)));
-        return map;
-    }
-
-    private static String unescape(String s) {
-        return s.replace("\\\"", "\"").replace("\\\\", "\\").replace("\\n", "\n").replace("\\t", "\t");
     }
 }

@@ -1,5 +1,6 @@
 package com.skriptvariables.service;
 
+import java.util.List;
 import com.skriptvariables.SkriptVariables;
 import com.skriptvariables.events.VariablesApplyEvent;
 import com.skriptvariables.profiler.Profiler;
@@ -7,6 +8,7 @@ import com.skriptvariables.profiler.ProfilerUnavailableException;
 import com.skriptvariables.util.ApiClient;
 import com.skriptvariables.util.SessionUploader;
 import com.skriptvariables.util.VariableApplier;
+import com.skriptvariables.util.SkriptVariableStore;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -71,7 +73,8 @@ public final class EditorService {
         async(() -> {
             try {
                 String diffJson = ApiClient.getDiff(sessionId, applyCode, force);
-                String[] names = VariableApplier.parseNames(diffJson).toArray(new String[0]);
+                List<VariableApplier.Change> changes = VariableApplier.parseChanges(diffJson);
+                String[] names = changes.stream().map(VariableApplier.Change::name).toArray(String[]::new);
                 sync(() -> {
                     VariablesApplyEvent applyEvent = new VariablesApplyEvent(sender, names);
                     plugin.getServer().getPluginManager().callEvent(applyEvent);
@@ -79,7 +82,7 @@ public final class EditorService {
                         sender.sendMessage(msg("Apply cancelled."));
                         return;
                     }
-                    VariableApplier.ApplyResult result = VariableApplier.apply(diffJson);
+                    VariableApplier.ApplyResult result = VariableApplier.apply(changes, SkriptVariableStore.INSTANCE);
                     sender.sendMessage(msg("Applied " + result.applied() + " change(s), skipped " + result.skipped() + "."));
                     for (String e : result.errors()) {
                         sender.sendMessage(PREFIX.append(Component.text("⚠ " + e).color(NamedTextColor.YELLOW)));
@@ -102,8 +105,9 @@ public final class EditorService {
         async(() -> {
             try {
                 String diffJson = ApiClient.getDiff(sessionId, applyCode, true);
+                List<VariableApplier.Change> changes = VariableApplier.parseChanges(diffJson);
                 sync(() -> {
-                    VariableApplier.PreviewResult preview = VariableApplier.preview(diffJson);
+                    VariableApplier.PreviewResult preview = VariableApplier.preview(changes);
                     sendPreview(sender, preview, sessionId, applyCode);
                 });
             } catch (Exception e) {
@@ -128,8 +132,9 @@ public final class EditorService {
         }
         for (VariableApplier.Change c : preview.deletes()) {
             if (shown++ >= PREVIEW_LINES) break;
+            String label = VariableApplier.isListDelete(c) ? "(delete whole list)" : "(delete)";
             sender.sendMessage(Component.text("  - " + c.name() + "  ").color(NamedTextColor.WHITE)
-                .append(Component.text("(delete)").color(NamedTextColor.GRAY)));
+                .append(Component.text(label).color(NamedTextColor.GRAY)));
         }
         for (VariableApplier.Change c : preview.unparseable()) {
             if (shown++ >= PREVIEW_LINES) break;

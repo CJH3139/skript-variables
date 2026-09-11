@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.2.2-beta
+
+### Faster mass deletion
+
+- Deleting a whole list from the web editor now runs the same calls as
+  Skript's own `delete {x::*}`: one per direct index and one for the list,
+  instead of one call per variable, so it is as fast as deleting the list
+  from a script
+- "Delete all" on a category in the website editor sends one list delete, so
+  the apply diff stays small no matter how many variables are inside
+- Plain variable deletes in the same diff still delete only that variable
+
+### Less work on the main thread
+
+- The apply diff is parsed once with Gson off the main thread. The main
+  thread only writes the changes
+- Replaced the regex diff parser with Gson
+
+### Preview
+
+- `/skv apply <sessionId> <code> --preview` labels list deletes as
+  "delete whole list"
+
 ## 1.2.1-beta
 
 ### Profiler measures commands, functions and periodicals
