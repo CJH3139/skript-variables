@@ -86,9 +86,12 @@ If the upload fails, the recording is not lost. Run `/skv profile upload` to
 retry the upload using the last recorded profile, without having to record
 again.
 
+Event triggers, script commands, functions and periodicals are all measured.
+The tab shows self time by default, which excludes time spent in nested
+triggers, and can switch to inclusive time.
+
 Your script source is never uploaded. The report contains only script paths,
-line numbers, event descriptions and timings. Commands, functions and
-periodicals are not measured in this version.
+line numbers, trigger labels and timings.
 
 ## Building
 

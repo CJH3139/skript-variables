@@ -5,22 +5,21 @@ import org.bukkit.event.Event;
 
 import java.util.ArrayList;
 
-/**
- * Wraps a real Trigger and times its execution. The empty item list handed to
- * the superclass is inert because super.execute is never called.
- */
 public final class ProfilingTrigger extends Trigger {
 
     private final Trigger original;
     private final TriggerStats stats;
     private final SpikeBuffer spikes;
+    private final CallStack callStack;
 
-    public ProfilingTrigger(Trigger original, TriggerStats stats, SpikeBuffer spikes) {
+    public ProfilingTrigger(Trigger original, TriggerStats stats, SpikeBuffer spikes, CallStack callStack) {
         super(original.getScript(), original.getName(), original.getEvent(), new ArrayList<>());
         setDebugLabel(original.getDebugLabel());
+        setLineNumber(original.getLineNumber());
         this.original = original;
         this.stats = stats;
         this.spikes = spikes;
+        this.callStack = callStack;
     }
 
     public Trigger original() {
@@ -29,13 +28,14 @@ public final class ProfilingTrigger extends Trigger {
 
     @Override
     public boolean execute(Event event) {
+        callStack.enter();
         long start = System.nanoTime();
         try {
             return original.execute(event);
         } finally {
-            long took = System.nanoTime() - start;
-            stats.record(took);
-            spikes.offer(stats.id(), System.currentTimeMillis(), took);
+            CallStack.Timing timing = callStack.exit(System.nanoTime() - start);
+            stats.record(timing.inclusiveNs(), timing.selfNs());
+            spikes.offer(stats.id(), System.currentTimeMillis(), timing.inclusiveNs());
         }
     }
 }

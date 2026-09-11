@@ -2,13 +2,20 @@ package com.skriptvariables.profiler;
 
 import ch.njol.skript.Skript;
 import ch.njol.skript.lang.Trigger;
-import com.google.common.collect.Multimap;
-import org.bukkit.event.Event;
+import com.skriptvariables.SkriptVariables;
+import com.skriptvariables.profiler.hooks.CommandHook;
+import com.skriptvariables.profiler.hooks.EventHook;
+import com.skriptvariables.profiler.hooks.FunctionHook;
+import com.skriptvariables.profiler.hooks.PeriodicalHook;
+import com.skriptvariables.profiler.hooks.TriggerHook;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
+import java.util.logging.Logger;
 
 public final class Profiler {
 
@@ -18,7 +25,9 @@ public final class Profiler {
     private static long startedAt;
     private static long startedNanos;
     private static SpikeBuffer spikes;
+    private static CallStack callStack;
     private static Map<Trigger, TriggerStats> statsByTrigger;
+    private static List<TriggerHook> engaged = new ArrayList<>();
     private static String lastProfile;
 
     private Profiler() {}
@@ -46,38 +55,61 @@ public final class Profiler {
     public static synchronized void start() throws ProfilerUnavailableException {
         if (recording) throw new ProfilerUnavailableException("Already recording");
 
-        Multimap<Class<? extends Event>, Trigger> map = TriggerRegistry.access();
-
         spikes = new SpikeBuffer(SPIKE_CAPACITY);
+        callStack = new CallStack();
         statsByTrigger = new IdentityHashMap<>();
+        engaged = new ArrayList<>();
         int[] nextId = {1};
 
-        TriggerRegistry.rewrite(map, original -> {
-            if (original instanceof ProfilingTrigger already) return already;
-            TriggerStats stats = statsByTrigger.computeIfAbsent(original, t -> new TriggerStats(
-                nextId[0]++,
-                t.getScript() == null ? "unknown" : t.getScript().nameAndPath(),
-                t.getName(),
-                t.getLineNumber()
-            ));
-            return new ProfilingTrigger(original, stats, spikes);
-        });
+        TriggerHook events = new EventHook();
+        try {
+            events.wrap(mapperFor(events, nextId));
+        } catch (ProfilerUnavailableException e) {
+            clear();
+            throw e;
+        }
+        engaged.add(events);
+
+        for (TriggerHook hook : List.of(new CommandHook(), new FunctionHook(), new PeriodicalHook())) {
+            try {
+                hook.wrap(mapperFor(hook, nextId));
+                engaged.add(hook);
+            } catch (ProfilerUnavailableException e) {
+                logger().warning("Profiler could not hook " + hook.kind().json() + "s: " + e.getMessage()
+                    + ". Recording continues without them.");
+                try {
+                    hook.unwrap();
+                } catch (ProfilerUnavailableException ignored) {
+                }
+            }
+        }
 
         startedAt = System.currentTimeMillis();
         startedNanos = System.nanoTime();
         recording = true;
     }
 
-    /** Restores the original triggers and returns the JSON payload. */
+    private static Function<Trigger, Trigger> mapperFor(TriggerHook hook, int[] nextId) {
+        return original -> {
+            if (original instanceof ProfilingTrigger already) return already;
+            TriggerStats stats = statsByTrigger.computeIfAbsent(original, t -> new TriggerStats(
+                nextId[0]++,
+                t.getScript() == null ? "unknown" : t.getScript().nameAndPath(),
+                hook.label(t),
+                t.getLineNumber(),
+                hook.kind()
+            ));
+            return new ProfilingTrigger(original, stats, spikes, callStack);
+        };
+    }
+
     public static synchronized String stop() throws ProfilerUnavailableException {
         if (!recording) throw new ProfilerUnavailableException("Not recording");
 
         long durationMs = elapsedMs();
         recording = false;
 
-        Multimap<Class<? extends Event>, Trigger> map = TriggerRegistry.access();
-        TriggerRegistry.rewrite(map, current ->
-            current instanceof ProfilingTrigger wrapped ? wrapped.original() : current);
+        ProfilerUnavailableException failure = unwrapAll();
 
         List<TriggerStats> collected = new ArrayList<>(statsByTrigger.values());
         List<Spike> collectedSpikes = spikes.drainSorted();
@@ -90,42 +122,54 @@ public final class Profiler {
             collectedSpikes
         );
 
-        statsByTrigger = null;
-        spikes = null;
+        clear();
+        if (failure != null) throw failure;
         return lastProfile;
     }
 
-    /** Called when a reload or shutdown makes the swapped triggers unsafe. */
     public static synchronized void abortIfRecording() {
         if (!recording) return;
         try {
             stop();
-            logAbort();
-        } catch (ProfilerUnavailableException ignored) {
-            try {
-                Multimap<Class<? extends Event>, Trigger> map = TriggerRegistry.access();
-                TriggerRegistry.rewrite(map, current ->
-                    current instanceof ProfilingTrigger wrapped ? wrapped.original() : current);
-            } catch (ProfilerUnavailableException stillFailing) {
-                // Best effort: registry could not be reached to unwrap. Fall through
-                // and clear local state anyway so the recorder doesn't stay stuck.
-            }
+        } catch (ProfilerUnavailableException e) {
             recording = false;
-            statsByTrigger = null;
-            spikes = null;
-            logAbort();
+            clear();
         }
+        logAbort();
+    }
+
+    private static ProfilerUnavailableException unwrapAll() {
+        ProfilerUnavailableException first = null;
+        List<TriggerHook> reversed = new ArrayList<>(engaged);
+        Collections.reverse(reversed);
+        for (TriggerHook hook : reversed) {
+            try {
+                hook.unwrap();
+            } catch (ProfilerUnavailableException e) {
+                if (first == null) first = e;
+                logger().warning("Profiler could not unhook " + hook.kind().json() + "s: " + e.getMessage());
+            }
+        }
+        return first;
+    }
+
+    private static void clear() {
+        statsByTrigger = null;
+        spikes = null;
+        callStack = null;
+        engaged = new ArrayList<>();
+    }
+
+    private static Logger logger() {
+        SkriptVariables plugin = SkriptVariables.getInstance();
+        return plugin != null ? plugin.getLogger() : Logger.getLogger("skript-variables");
     }
 
     private static void logAbort() {
         try {
-            java.util.logging.Logger logger = com.skriptvariables.SkriptVariables.getInstance() != null
-                ? com.skriptvariables.SkriptVariables.getInstance().getLogger()
-                : java.util.logging.Logger.getLogger("skript-variables");
-            logger.info("Profiling stopped early because scripts were reloaded or unloaded. "
+            logger().info("Profiling stopped early because scripts were reloaded or unloaded. "
                 + "Run /skv profile upload to send the partial profile.");
         } catch (RuntimeException ignored) {
-            // Logging must never break the abort path.
         }
     }
 }

@@ -14,7 +14,7 @@ public final class ProfileJson {
                                List<Spike> spikes) {
         StringBuilder sb = new StringBuilder(512);
         sb.append('{');
-        sb.append("\"version\":1,");
+        sb.append("\"version\":2,");
         sb.append("\"startedAt\":").append(startedAt).append(',');
         sb.append("\"durationMs\":").append(durationMs).append(',');
         sb.append("\"skriptVersion\":\"").append(esc(skriptVersion)).append("\",");
@@ -30,8 +30,10 @@ public final class ProfileJson {
               .append("\"script\":\"").append(esc(s.script())).append("\",")
               .append("\"event\":\"").append(esc(s.event())).append("\",")
               .append("\"line\":").append(s.line()).append(',')
+              .append("\"kind\":\"").append(s.kind().json()).append("\",")
               .append("\"count\":").append(s.count()).append(',')
               .append("\"totalNs\":").append(s.totalNs()).append(',')
+              .append("\"selfNs\":").append(s.selfNs()).append(',')
               .append("\"maxNs\":").append(s.maxNs())
               .append('}');
         }

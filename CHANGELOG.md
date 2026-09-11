@@ -1,15 +1,26 @@
 # Changelog
 
-## 1.2-beta
+## 1.2.1-beta
+
+### Profiler measures commands, functions and periodicals
+
+- Script commands, script functions, `every X` and `at HH:MM` triggers are now
+  timed alongside event triggers
+- Each trigger reports self time as well as inclusive time. Self time excludes
+  time spent in nested profiled triggers, so a slow function shows up once
+  instead of inflating every caller
+- Profile payload is now version 2 with `kind` and `selfNs` per trigger. The
+  website still renders version 1 profiles
+- Hooking commands, functions or periodicals uses reflection on Skript
+  internals. If a hook fails on your Skript version the profiler logs a
+  warning and records the other kinds
 
 ### Works without variables.csv
 
 - `/skv editor` and the profiler no longer refuse to run when
   `plugins/Skript/variables.csv` is missing. Servers using MySQL or SQLite
   variable storage are now supported
-- Variables are read from Skript's in-memory map, which was already the source
-  of truth; the CSV only ever supplied row order
-- A clear error is shown if neither the in-memory map nor a CSV can be read
+- Variables are read from Skript's in-memory map
 
 ### Preview before applying
 
