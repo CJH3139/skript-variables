@@ -202,7 +202,22 @@ public final class SessionUploader {
         return new String[]{name, sv.type(), bytesToHex(sv.data())};
     }
 
+    private static final int MAX_SERIALIZABLE_STACK = 99;
+
+    static boolean exceedsSerializableStack(int amount) {
+        return amount < 1 || amount > MAX_SERIALIZABLE_STACK;
+    }
+
+    private static boolean knownUnserializable(Object value) {
+        if (value instanceof ItemStack item) return exceedsSerializableStack(item.getAmount());
+        if (value instanceof ItemType type) return exceedsSerializableStack(type.getAmount());
+        return false;
+    }
+
     private static Serialized serializeWithSkript(String name, Object value) {
+        if (knownUnserializable(value)) {
+            throw new IllegalStateException("Stack amount outside 1 to " + MAX_SERIALIZABLE_STACK);
+        }
         SerializedVariable sv = Variables.serialize(name, value);
         if (sv == null || sv.value == null) return null;
         return new Serialized(sv.value.type, sv.value.data);

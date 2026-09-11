@@ -70,4 +70,14 @@ class SessionUploaderTest {
 
         assertNull(row);
     }
+
+    @Test
+    void stackAmountsOutsideOneToNinetyNineCannotBeSerialized() {
+        assertTrue(SessionUploader.exceedsSerializableStack(100));
+        assertTrue(SessionUploader.exceedsSerializableStack(512));
+        assertTrue(SessionUploader.exceedsSerializableStack(0));
+        assertFalse(SessionUploader.exceedsSerializableStack(1));
+        assertFalse(SessionUploader.exceedsSerializableStack(64));
+        assertFalse(SessionUploader.exceedsSerializableStack(99));
+    }
 }

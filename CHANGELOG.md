@@ -8,6 +8,9 @@
   Skript, for example an item stack with an amount above 99 on newer Paper
   builds. That variable is uploaded by type only so it can still be viewed
   and deleted, and a console warning reports how many were affected
+- Item stacks with an amount outside 1 to 99 are detected before Skript's
+  serializer runs, so Skript no longer prints a "Severe Error" block for each
+  one during `/skv editor`
 
 ### Faster mass deletion
 
