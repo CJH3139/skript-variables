@@ -12,6 +12,7 @@ import java.util.LinkedHashMap;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SessionUploaderTest {
@@ -43,5 +44,30 @@ class SessionUploaderTest {
         assertEquals(1, rows.size());
         assertArrayEquals(new String[]{"kills", "long", "0a"}, rows.get("kills"));
         assertFalse(rows.containsKey("gone"));
+    }
+
+    @Test
+    void rowForUsesSerializedTypeAndHexWhenSerializerSucceeds() {
+        String[] row = SessionUploader.rowFor("kills", 5L,
+            (n, v) -> new SessionUploader.Serialized("long", new byte[]{0x0a}),
+            v -> "long");
+
+        assertArrayEquals(new String[]{"kills", "long", "0a"}, row);
+    }
+
+    @Test
+    void rowForFallsBackToTypeNameWhenSerializerThrows() {
+        String[] row = SessionUploader.rowFor("big", "stack",
+            (n, v) -> { throw new IllegalStateException("Value must be within range [1;99]: 512"); },
+            v -> "itemstack");
+
+        assertArrayEquals(new String[]{"big", "itemstack", ""}, row);
+    }
+
+    @Test
+    void rowForReturnsNullWhenSerializerReturnsNull() {
+        String[] row = SessionUploader.rowFor("weird", new Object(), (n, v) -> null, v -> "object");
+
+        assertNull(row);
     }
 }

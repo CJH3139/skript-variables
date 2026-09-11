@@ -26,6 +26,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.locks.Lock;
+import java.util.function.Function;
 import java.util.regex.*;
 import java.util.HexFormat;
 
@@ -157,13 +158,14 @@ public final class SessionUploader {
             }
         });
 
+        int fallbacks = 0;
         for (Map.Entry<String, Object> entry : flat.entrySet()) {
             String name = entry.getKey();
             Object value = entry.getValue();
             if (value instanceof Map) continue;
             if (name.startsWith("_")) continue;
-            SerializedVariable sv = Variables.serialize(name, value);
-            if (sv == null || sv.value == null) {
+            String[] row = rowFor(name, value, SessionUploader::serializeWithSkript, SessionUploader::skriptTypeName);
+            if (row == null) {
                 if (oopsk) {
                     try {
                         if (StructHelper.tryFormatStruct(value) != null)
@@ -172,9 +174,46 @@ public final class SessionUploader {
                 }
                 continue;
             }
-            live.put(name, new String[]{name, sv.value.type, bytesToHex(sv.value.data)});
+            if (row[2].isEmpty()) fallbacks++;
+            live.put(name, row);
+        }
+        if (fallbacks > 0) {
+            SkriptVariables.getInstance().getLogger().warning(fallbacks
+                + " variable(s) could not be serialized by Skript and were uploaded by type only. "
+                + "They can still be viewed and deleted in the editor.");
         }
         return flat;
+    }
+
+    record Serialized(String type, byte[] data) {}
+
+    interface RowSerializer {
+        Serialized serialize(String name, Object value);
+    }
+
+    static String[] rowFor(String name, Object value, RowSerializer serializer, Function<Object, String> typeOf) {
+        Serialized sv;
+        try {
+            sv = serializer.serialize(name, value);
+        } catch (RuntimeException e) {
+            return new String[]{name, typeOf.apply(value), ""};
+        }
+        if (sv == null) return null;
+        return new String[]{name, sv.type(), bytesToHex(sv.data())};
+    }
+
+    private static Serialized serializeWithSkript(String name, Object value) {
+        SerializedVariable sv = Variables.serialize(name, value);
+        if (sv == null || sv.value == null) return null;
+        return new Serialized(sv.value.type, sv.value.data);
+    }
+
+    private static String skriptTypeName(Object value) {
+        try {
+            var info = Classes.getSuperClassInfo(value.getClass());
+            if (info != null) return info.getCodeName();
+        } catch (RuntimeException ignored) {}
+        return value.getClass().getSimpleName().toLowerCase();
     }
 
     @SuppressWarnings("unchecked")

@@ -2,6 +2,13 @@
 
 ## 1.2.2-beta
 
+### Fixes
+
+- `/skv editor` no longer fails when one variable cannot be serialized by
+  Skript, for example an item stack with an amount above 99 on newer Paper
+  builds. That variable is uploaded by type only so it can still be viewed
+  and deleted, and a console warning reports how many were affected
+
 ### Faster mass deletion
 
 - Deleting a whole list from the web editor now runs the same calls as
