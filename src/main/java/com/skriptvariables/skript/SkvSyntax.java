@@ -10,7 +10,7 @@ public final class SkvSyntax {
     private SkvSyntax() {}
 
     public static void register(SyntaxRegistry registry) {
-        EvtVariablesApply.register();
+        EvtVariablesApply.register(registry);
 
         registry.register(SyntaxRegistry.EFFECT, SyntaxInfo.builder(EffStartProfile.class)
             .addPattern("start [a|the] skript profile [for %-timespan%]")

@@ -332,7 +332,7 @@ public final class SessionUploader {
                 }
                 case "date" -> {
                     if (!(val instanceof Date date)) yield hexFallback;
-                    yield String.valueOf(date.getTimestamp());
+                    yield String.valueOf(date.getTime());
                 }
                 case "color" -> Classes.toString(val);
                 case "world" -> {
