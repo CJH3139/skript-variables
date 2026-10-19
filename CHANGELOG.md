@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.2.2-beta
+## 1.2.3-beta
 
 ### Fixes
 
@@ -17,6 +17,13 @@
   0 variables
 - Any variable that fails at any step of the upload is skipped on its own.
   The rest still upload. A console warning lists the first ten skipped names
+
+### Compatibility
+
+- The `variable apply` event is registered through Skript's new syntax
+  registry and follows the `listen to cancelled events by default` setting
+
+## 1.2.2-beta
 
 ### Faster mass deletion
 
