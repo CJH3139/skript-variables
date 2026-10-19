@@ -11,6 +11,12 @@
 - Item stacks with an amount outside 1 to 99 are detected before Skript's
   serializer runs, so Skript no longer prints a "Severe Error" block for each
   one during `/skv editor`
+- Variable values containing newlines, tabs or other control characters, for
+  example multi line text components, no longer produce invalid upload JSON.
+  Previously the website silently dropped the whole chunk and showed
+  0 variables
+- Any variable that fails at any step of the upload is skipped on its own.
+  The rest still upload. A console warning lists the first ten skipped names
 
 ### Faster mass deletion
 

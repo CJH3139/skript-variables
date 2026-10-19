@@ -26,7 +26,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.locks.Lock;
+import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.logging.Logger;
 import java.util.regex.*;
 import java.util.HexFormat;
 
@@ -58,10 +60,9 @@ public final class SessionUploader {
         }
 
         List<String[]> vars = new ArrayList<>(live.values());
+        ValueMaps maps = buildValueMaps(vars, flat);
         int total = vars.size();
         int totalChunks = (int) Math.ceil((double) total / CHUNK_SIZE);
-
-        ValueMaps maps = buildValueMaps(vars, flat);
 
         String sessionId = ApiClient.createSession(total);
 
@@ -158,12 +159,13 @@ public final class SessionUploader {
             }
         });
 
-        int fallbacks = 0;
-        for (Map.Entry<String, Object> entry : flat.entrySet()) {
+        int[] fallbacks = {0};
+        List<String> skipped = new ArrayList<>();
+        forEachSkippingFailures(flat.entrySet(), entry -> {
             String name = entry.getKey();
             Object value = entry.getValue();
-            if (value instanceof Map) continue;
-            if (name.startsWith("_")) continue;
+            if (value instanceof Map) return;
+            if (name.startsWith("_")) return;
             String[] row = rowFor(name, value, SessionUploader::serializeWithSkript, SessionUploader::skriptTypeName);
             if (row == null) {
                 if (oopsk) {
@@ -172,17 +174,52 @@ public final class SessionUploader {
                             live.put(name, new String[]{name, "struct", ""});
                     } catch (Exception ignored) {}
                 }
-                continue;
+                return;
             }
-            if (row[2].isEmpty()) fallbacks++;
+            if (row[2].isEmpty()) fallbacks[0]++;
             live.put(name, row);
-        }
-        if (fallbacks > 0) {
-            SkriptVariables.getInstance().getLogger().warning(fallbacks
+        }, Map.Entry::getKey, skipped);
+        for (String name : skipped) live.remove(name);
+        if (fallbacks[0] > 0) {
+            logger().warning(fallbacks[0]
                 + " variable(s) could not be serialized by Skript and were uploaded by type only. "
                 + "They can still be viewed and deleted in the editor.");
         }
+        reportSkipped(skipped, "read");
         return flat;
+    }
+
+    static <T> int forEachSkippingFailures(Iterable<T> items, Consumer<T> body, Function<T, String> nameOf, List<String> skipped) {
+        int failures = 0;
+        for (T item : items) {
+            try {
+                body.accept(item);
+            } catch (RuntimeException | LinkageError e) {
+                failures++;
+                String name;
+                try {
+                    name = nameOf.apply(item);
+                } catch (RuntimeException ignored) {
+                    name = "?";
+                }
+                skipped.add(name);
+                logger().fine("Skipped variable " + name + ": " + e);
+            }
+        }
+        return failures;
+    }
+
+    private static void reportSkipped(List<String> skipped, String stage) {
+        if (skipped.isEmpty()) return;
+        int shown = Math.min(skipped.size(), 10);
+        String names = String.join(", ", skipped.subList(0, shown)) + (skipped.size() > shown ? ", ..." : "");
+        logger().warning(skipped.size() + " variable(s) could not be " + stage
+            + " and were left out of the upload: " + names);
+    }
+
+    private static Logger logger() {
+        SkriptVariables plugin = SkriptVariables.getInstance();
+        return plugin != null ? plugin.getLogger() : Logger.getLogger("skript-variables");
     }
 
     record Serialized(String type, byte[] data) {}
@@ -308,7 +345,8 @@ public final class SessionUploader {
         Map<String, String> items   = new HashMap<>();
         Map<String, String> nbts    = new HashMap<>();
 
-        for (String[] cols : vars) {
+        List<String> skipped = new ArrayList<>();
+        forEachSkippingFailures(vars, cols -> {
             String name = cols[0];
             String type = cols[1].toLowerCase();
             Object val  = lookup(flat, name);
@@ -320,17 +358,17 @@ public final class SessionUploader {
                     String json = itemToJson(item);
                     if (json != null) items.put(name, json);
                 }
-                continue;
+                return;
             }
 
-            if (val == null) continue;
+            if (val == null) return;
 
             if (oopsk) {
                 try {
                     String json = StructHelper.tryFormatStruct(val);
                     if (json != null) {
                         structs.put(name, json);
-                        continue;
+                        return;
                     }
                 } catch (Exception ignored) {}
             }
@@ -343,6 +381,13 @@ public final class SessionUploader {
                     }
                 } catch (Exception ignored) {}
             }
+        }, cols -> cols[0], skipped);
+        if (!skipped.isEmpty()) {
+            Set<String> drop = new HashSet<>(skipped);
+            vars.removeIf(cols -> drop.contains(cols[0]));
+            display.keySet().removeAll(drop);
+            items.keySet().removeAll(drop);
+            reportSkipped(skipped, "formatted");
         }
         return new ValueMaps(display, structs, items, nbts);
     }
@@ -415,7 +460,7 @@ public final class SessionUploader {
         }
     }
 
-    private static String buildChunkJson(List<String[]> rows, Map<String, String> display, Map<String, String> structs, Map<String, String> items, Map<String, String> nbts) {
+    static String buildChunkJson(List<String[]> rows, Map<String, String> display, Map<String, String> structs, Map<String, String> items, Map<String, String> nbts) {
         StringBuilder sb = new StringBuilder("[");
         for (int i = 0; i < rows.size(); i++) {
             if (i > 0) sb.append(",");
@@ -500,9 +545,24 @@ public final class SessionUploader {
         return sb.toString();
     }
 
-    private static String esc(String s) {
+    static String esc(String s) {
         if (s == null) return "";
-        return s.replace("\\", "\\\\").replace("\"", "\\\"");
+        StringBuilder out = new StringBuilder(s.length() + 8);
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '"' -> out.append("\\\"");
+                case '\\' -> out.append("\\\\");
+                case '\n' -> out.append("\\n");
+                case '\r' -> out.append("\\r");
+                case '\t' -> out.append("\\t");
+                default -> {
+                    if (c < 0x20) out.append(String.format("\\u%04x", (int) c));
+                    else out.append(c);
+                }
+            }
+        }
+        return out.toString();
     }
 
     static String[] splitCsv(String line) {
