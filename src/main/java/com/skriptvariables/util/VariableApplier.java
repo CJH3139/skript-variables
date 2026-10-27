@@ -29,11 +29,13 @@ import java.util.*;
 
 public final class VariableApplier {
 
-    public record ApplyResult(int applied, int skipped, List<String> errors) {}
+    public record ApplyResult(int applied, int skipped, List<String> errors, int captured) {}
 
     public record Change(String name, String type, String value) {}
 
     public record PreviewResult(List<Change> sets, List<Change> deletes, List<Change> unparseable) {}
+
+    public record DeleteContext(DeletedVariableBuffer buffer, String deletedBy, String sessionId) {}
 
     public static PreviewResult preview(String diffJson) {
         return preview(parseChanges(diffJson));
@@ -66,15 +68,29 @@ public final class VariableApplier {
     }
 
     public static ApplyResult apply(List<Change> changes, VariableStore store) {
-        int applied = 0, skipped = 0;
+        return apply(changes, store, null);
+    }
+
+    public static ApplyResult apply(List<Change> changes, VariableStore store, DeleteContext context) {
+        int applied = 0, skipped = 0, captured = 0;
+        int batch = -1;
         List<String> errors = new ArrayList<>();
 
         for (Change change : changes) {
+            DeletedVariableBuffer.Entry entry = null;
             try {
                 if (isListDelete(change)) {
+                    if (context != null) {
+                        if (batch < 0) batch = context.buffer().newBatch();
+                        entry = capture(change.name(), store, context, batch);
+                    }
                     deleteList(change.name(), store);
                     applied++;
                 } else if ("null".equalsIgnoreCase(change.type())) {
+                    if (context != null) {
+                        if (batch < 0) batch = context.buffer().newBatch();
+                        entry = capture(change.name(), store, context, batch);
+                    }
                     store.set(change.name(), null);
                     applied++;
                 } else {
@@ -83,13 +99,50 @@ public final class VariableApplier {
                     store.set(change.name(), parsed);
                     applied++;
                 }
+                if (entry != null) captured++;
             } catch (Exception e) {
+                if (entry != null && !isListDelete(change)) context.buffer().remove(entry.id());
+                else if (entry != null) captured++;
                 errors.add(change.name() + ": " + e.getMessage());
                 skipped++;
             }
         }
 
-        return new ApplyResult(applied, skipped, errors);
+        return new ApplyResult(applied, skipped, errors, captured);
+    }
+
+    private static DeletedVariableBuffer.Entry capture(String name, VariableStore store, DeleteContext context, int batch) {
+        Object current = store.get(name);
+        Map<String, Object> values;
+        if (name.endsWith("::*")) {
+            if (!(current instanceof Map<?, ?> map)) return null;
+            values = flattenList(name, map);
+        } else {
+            if (current == null) return null;
+            values = Map.of(name, current);
+        }
+        if (values.isEmpty()) return null;
+        return context.buffer().record(batch, name, values, context.deletedBy(), context.sessionId());
+    }
+
+    static Map<String, Object> flattenList(String listName, Map<?, ?> map) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        flattenInto(listName.substring(0, listName.length() - 1), map, out);
+        return out;
+    }
+
+    private static void flattenInto(String prefix, Map<?, ?> map, Map<String, Object> out) {
+        for (Map.Entry<?, ?> e : map.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null) continue;
+            String name = prefix + e.getKey();
+            if (e.getValue() instanceof Map<?, ?> sub) {
+                Object own = sub.get(null);
+                if (own != null) out.put(name, own);
+                flattenInto(name + "::", sub, out);
+            } else {
+                out.put(name, e.getValue());
+            }
+        }
     }
 
     public static boolean isListDelete(Change change) {

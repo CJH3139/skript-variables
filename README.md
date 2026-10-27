@@ -26,6 +26,9 @@ Download the latest release from [Modrinth](https://modrinth.com/plugin/skript-v
 | `/skv apply <sessionId> <code>` | Apply changes made in the editor back to the server | `skriptvariables.editor` |
 | `/skv apply <sessionId> <code> --force` | Apply changes without expiring the code | `skriptvariables.editor` |
 | `/skv apply <sessionId> <code> --preview` | Show what would change without applying anything | `skriptvariables.editor` |
+| `/skv restore list [page]` | Show variables recently deleted by `/skv apply` | `skriptvariables.editor` |
+| `/skv restore <id> [--force]` | Restore one deleted variable or list | `skriptvariables.editor` |
+| `/skv restore last [--force]` | Restore everything the most recent apply deleted | `skriptvariables.editor` |
 | `/skv profile start [seconds]` | Record Skript timings, default 60s, max 600s | `skriptvariables.profile` |
 | `/skv profile stop` | Stop recording, upload the results and open the report | `skriptvariables.profile` |
 | `/skv profile status` | Show whether recording is active | `skriptvariables.profile` |
@@ -50,6 +53,28 @@ exists.
 prints what would be set, deleted, or skipped because the value cannot be
 parsed. Nothing is written and the apply code stays valid, so you can review
 and then run the same command without `--preview` to apply.
+
+## Restoring deleted variables
+
+When `/skv apply` deletes variables, their old values are kept so you can put
+them back. After an apply that deleted something, the plugin prints
+`Undo with /skv restore last`.
+
+- `/skv restore list` shows recent deletions with an id, who deleted them and
+  when.
+- `/skv restore <id>` restores one entry. A deleted list is restored as a
+  whole, including nested entries.
+- `/skv restore last` restores everything the most recent apply deleted.
+
+A restore is refused when any of its variables has been set again since the
+delete, so newer data is never overwritten by accident. Add `--force` to
+overwrite anyway.
+
+Only deletes made through `/skv apply` are kept. Deletes done by scripts are
+not. The history lives in memory, so it is lost on restart or reload. Its size
+is limited by `restore.max-entries` (default 200), `restore.max-values` (default
+100000, total values across all entries; a list larger than this is not kept)
+and `restore.max-age-minutes` (default 1440) in `config.yml`.
 
 ## Skript syntax
 

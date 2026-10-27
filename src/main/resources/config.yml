@@ -1,2 +1,7 @@
 api-base: ""
 
+restore:
+  max-entries: 200
+  max-values: 100000
+  max-age-minutes: 1440
+
