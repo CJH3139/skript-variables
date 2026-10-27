@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.2.4-beta
+
+### New
+
+- `/skv restore list [page]` shows variables recently deleted by `/skv apply`
+- `/skv restore <id> [--force]` restores one deleted variable or whole list
+- `/skv restore last [--force]` restores everything the most recent apply
+  deleted
+- After an apply that deleted variables, the result message says
+  `Undo with /skv restore last`
+- A restore is refused when a variable was set again since the delete,
+  unless `--force` is given. History is kept in memory only and is limited by
+  `restore.max-entries`, `restore.max-values` and `restore.max-age-minutes`
+  in `config.yml`
+
 ## 1.2.3-beta
 
 ### Fixes

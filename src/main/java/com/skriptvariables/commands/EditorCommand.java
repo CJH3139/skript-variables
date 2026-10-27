@@ -46,6 +46,7 @@ public final class EditorCommand implements CommandExecutor, TabCompleter {
             case "editor" -> service.openEditor(sender);
             case "profile" -> runProfile(sender, args);
             case "apply" -> runApply(sender, args);
+            case "restore" -> runRestore(sender, args);
             default -> sendHelp(sender);
         }
         return true;
@@ -61,6 +62,39 @@ public final class EditorCommand implements CommandExecutor, TabCompleter {
             case "--preview" -> service.previewApply(sender, args[1], args[2]);
             case "--force" -> service.apply(sender, args[1], args[2], true);
             default -> service.apply(sender, args[1], args[2], false);
+        }
+    }
+
+    private void runRestore(CommandSender sender, String[] args) {
+        boolean force = false;
+        for (int i = 2; i < args.length; i++) {
+            if (args[i].equalsIgnoreCase("--force")) force = true;
+        }
+        String sub = args.length >= 2 ? args[1].toLowerCase() : "list";
+        switch (sub) {
+            case "list" -> {
+                int page = 1;
+                if (args.length >= 3) {
+                    try {
+                        page = Integer.parseInt(args[2]);
+                    } catch (NumberFormatException e) {
+                        sender.sendMessage(err("Page must be a whole number."));
+                        return;
+                    }
+                }
+                service.restoreList(sender, page);
+            }
+            case "last" -> service.restoreLast(sender, force);
+            default -> {
+                int id;
+                try {
+                    id = Integer.parseInt(args[1]);
+                } catch (NumberFormatException e) {
+                    sender.sendMessage(err("Usage: /skv restore <list|last|id> [--force]"));
+                    return;
+                }
+                service.restore(sender, id, force);
+            }
         }
     }
 
@@ -98,6 +132,8 @@ public final class EditorCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(help("/skv editor", "upload variables and open the editor"));
         sender.sendMessage(help("/skv apply <sessionId> <code> [--force]", "apply changes; --force keeps the code reusable"));
         sender.sendMessage(help("/skv apply <sessionId> <code> --preview", "show what would change without applying"));
+        sender.sendMessage(help("/skv restore list [page]", "show recently deleted variables"));
+        sender.sendMessage(help("/skv restore <id>|last [--force]", "restore a deleted variable or the last apply's deletes"));
         sender.sendMessage(help("/skv profile start|stop|status|upload", "record and upload Skript timings"));
         sender.sendMessage(help("/skv help", "show this help"));
     }
@@ -110,13 +146,19 @@ public final class EditorCommand implements CommandExecutor, TabCompleter {
     @Override
     public List<String> onTabComplete(@NotNull CommandSender s, @NotNull Command c, @NotNull String alias, @NotNull String[] args) {
         if (args.length == 1)
-            return List.of("editor", "apply", "profile", "help").stream()
+            return List.of("editor", "apply", "restore", "profile", "help").stream()
                 .filter(sub -> sub.startsWith(args[0].toLowerCase()))
                 .toList();
         if (args.length == 2 && args[0].equalsIgnoreCase("profile"))
             return List.of("start", "stop", "status", "upload").stream()
                 .filter(sub -> sub.startsWith(args[1].toLowerCase()))
                 .toList();
+        if (args.length == 2 && args[0].equalsIgnoreCase("restore"))
+            return List.of("list", "last").stream()
+                .filter(sub -> sub.startsWith(args[1].toLowerCase()))
+                .toList();
+        if (args.length == 3 && args[0].equalsIgnoreCase("restore") && !args[1].equalsIgnoreCase("list"))
+            return "--force".startsWith(args[2].toLowerCase()) ? List.of("--force") : List.of();
         if (args.length == 4 && args[0].equalsIgnoreCase("apply"))
             return List.of("--force", "--preview").stream()
                 .filter(f -> f.startsWith(args[3].toLowerCase()))

@@ -6,6 +6,7 @@ import com.skriptvariables.commands.EditorCommand;
 import com.skriptvariables.service.EditorService;
 import com.skriptvariables.skript.SkvSyntax;
 import com.skriptvariables.util.ApiClient;
+import com.skriptvariables.util.DeletedVariableBuffer;
 import org.bstats.bukkit.Metrics;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -28,7 +29,12 @@ public final class SkriptVariables extends JavaPlugin {
         int pluginId = 31367;
         Metrics metrics = new Metrics(this, pluginId);
 
-        service = new EditorService(this);
+        var trash = new DeletedVariableBuffer(
+            getConfig().getInt("restore.max-entries", 200),
+            getConfig().getInt("restore.max-values", 100000),
+            getConfig().getLong("restore.max-age-minutes", 1440) * 60_000L,
+            System::currentTimeMillis);
+        service = new EditorService(this, trash);
 
         addon = Skript.instance().registerAddon(SkriptVariables.class, "SkriptVariables");
         SkvSyntax.register(addon.syntaxRegistry());

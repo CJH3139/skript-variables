@@ -6,9 +6,11 @@ import com.skriptvariables.events.VariablesApplyEvent;
 import com.skriptvariables.profiler.Profiler;
 import com.skriptvariables.profiler.ProfilerUnavailableException;
 import com.skriptvariables.util.ApiClient;
+import com.skriptvariables.util.DeletedVariableBuffer;
 import com.skriptvariables.util.SessionUploader;
 import com.skriptvariables.util.VariableApplier;
 import com.skriptvariables.util.SkriptVariableStore;
+import com.skriptvariables.util.VariableRestorer;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -25,6 +27,8 @@ public final class EditorService {
     public static final int MAX_PROFILE_SECONDS = 600;
     private static final int PREVIEW_LINES = 15;
     private static final int PREVIEW_VALUE_WIDTH = 40;
+    private static final int RESTORE_PAGE_SIZE = 10;
+    private static final int CONFLICT_LINES = 10;
 
     public static final Component PREFIX =
         Component.text("[").color(NamedTextColor.GRAY)
@@ -32,10 +36,12 @@ public final class EditorService {
         .append(Component.text("] ").color(NamedTextColor.GRAY));
 
     private final SkriptVariables plugin;
+    private final DeletedVariableBuffer trash;
     private BukkitTask profileAutoStopTask;
 
-    public EditorService(SkriptVariables plugin) {
+    public EditorService(SkriptVariables plugin, DeletedVariableBuffer trash) {
         this.plugin = plugin;
+        this.trash = trash;
     }
 
     public void openEditor(CommandSender sender) {
@@ -82,8 +88,12 @@ public final class EditorService {
                         sender.sendMessage(msg("Apply cancelled."));
                         return;
                     }
-                    VariableApplier.ApplyResult result = VariableApplier.apply(changes, SkriptVariableStore.INSTANCE);
+                    VariableApplier.ApplyResult result = VariableApplier.apply(changes, SkriptVariableStore.INSTANCE,
+                        new VariableApplier.DeleteContext(trash, sender.getName(), sessionId));
                     sender.sendMessage(msg("Applied " + result.applied() + " change(s), skipped " + result.skipped() + "."));
+                    if (result.captured() > 0) {
+                        sender.sendMessage(msg("Deleted " + result.captured() + " variable(s). Undo with /skv restore last"));
+                    }
                     for (String e : result.errors()) {
                         sender.sendMessage(PREFIX.append(Component.text("⚠ " + e).color(NamedTextColor.YELLOW)));
                     }
@@ -147,6 +157,79 @@ public final class EditorService {
         if (total > 0) {
             sender.sendMessage(msg("Run /skv apply " + sessionId + " " + applyCode + " to apply."));
         }
+    }
+
+    public void restoreList(CommandSender sender, int page) {
+        List<DeletedVariableBuffer.Entry> entries = trash.newestFirst();
+        if (entries.isEmpty()) {
+            sender.sendMessage(msg("No recently deleted variables."));
+            return;
+        }
+        int pages = (entries.size() + RESTORE_PAGE_SIZE - 1) / RESTORE_PAGE_SIZE;
+        int current = Math.max(1, Math.min(page, pages));
+        sender.sendMessage(msg("Recently deleted (page " + current + "/" + pages + "):"));
+        long now = System.currentTimeMillis();
+        int from = (current - 1) * RESTORE_PAGE_SIZE;
+        for (DeletedVariableBuffer.Entry e : entries.subList(from, Math.min(from + RESTORE_PAGE_SIZE, entries.size()))) {
+            Component line = Component.text("  #" + e.id() + "  " + e.name()).color(NamedTextColor.WHITE);
+            if (e.name().endsWith("::*")) {
+                line = line.append(Component.text("  " + e.values().size() + " entries").color(NamedTextColor.GRAY));
+            }
+            sender.sendMessage(line.append(Component.text("  " + ago(now - e.deletedAt()) + " by " + e.deletedBy())
+                .color(NamedTextColor.GRAY)));
+        }
+    }
+
+    public void restore(CommandSender sender, int id, boolean force) {
+        DeletedVariableBuffer.Entry entry = trash.get(id);
+        if (entry == null) {
+            sender.sendMessage(err("No deleted entry with id " + id + "."));
+            return;
+        }
+        reportRestore(sender, VariableRestorer.restore(List.of(entry), SkriptVariableStore.INSTANCE, trash, force));
+    }
+
+    public void restoreLast(CommandSender sender, boolean force) {
+        List<DeletedVariableBuffer.Entry> batch = trash.latestBatch();
+        if (batch.isEmpty()) {
+            sender.sendMessage(err("Nothing to restore."));
+            return;
+        }
+        reportRestore(sender, VariableRestorer.restore(batch, SkriptVariableStore.INSTANCE, trash, force));
+    }
+
+    private void reportRestore(CommandSender sender, VariableRestorer.RestoreResult result) {
+        if (result.restored()) {
+            sender.sendMessage(msg("Restored " + result.written() + " variable(s)."));
+            List<String> failed = result.failed();
+            if (!failed.isEmpty()) {
+                sender.sendMessage(err(failed.size() + " variable(s) could not be written and are still in /skv restore list:"));
+                for (String name : failed.subList(0, Math.min(CONFLICT_LINES, failed.size()))) {
+                    sender.sendMessage(Component.text("  " + name).color(NamedTextColor.YELLOW));
+                }
+                if (failed.size() > CONFLICT_LINES) {
+                    sender.sendMessage(Component.text("  ... and " + (failed.size() - CONFLICT_LINES) + " more").color(NamedTextColor.GRAY));
+                }
+            }
+            return;
+        }
+        List<String> conflicts = result.conflicts();
+        sender.sendMessage(err("Not restored: " + conflicts.size()
+            + " variable(s) were set again since the delete. Add --force to overwrite."));
+        for (String name : conflicts.subList(0, Math.min(CONFLICT_LINES, conflicts.size()))) {
+            sender.sendMessage(Component.text("  " + name).color(NamedTextColor.YELLOW));
+        }
+        if (conflicts.size() > CONFLICT_LINES) {
+            sender.sendMessage(Component.text("  ... and " + (conflicts.size() - CONFLICT_LINES) + " more").color(NamedTextColor.GRAY));
+        }
+    }
+
+    private static String ago(long millis) {
+        long seconds = Math.max(0, millis / 1000);
+        if (seconds < 60) return seconds + "s ago";
+        if (seconds < 3600) return (seconds / 60) + "m ago";
+        if (seconds < 86400) return (seconds / 3600) + "h ago";
+        return (seconds / 86400) + "d ago";
     }
 
     private void reportApplyFailure(CommandSender sender, String source, Exception e) {
